@@ -6,14 +6,7 @@
 
 namespace stegtool::crypto {
 
-namespace {
-    // Simple KDF: derive 32-byte key from passphrase using SHA256
-    ByteArray derive_key(const std::string& passphrase, const ByteArray& salt) {
-        unsigned char key[32];
-        PKCS5_PBKDF2_HMAC(passphrase.c_str(), passphrase.length(), salt.data(), salt.size(), 10000, EVP_sha256(), 32, key);
-        return ByteArray(key, key + 32);
-    }
-}
+#include "kdf.hpp"
 
 EncryptedData AESGCM::encrypt(const ByteArray& plaintext, const std::string& passphrase) {
     EncryptedData result;
@@ -26,8 +19,8 @@ EncryptedData AESGCM::encrypt(const ByteArray& plaintext, const std::string& pas
         throw EncryptionException("Failed to generate random bytes");
     }
 
-    // Derive key from passphrase
-    ByteArray key = derive_key(passphrase, result.salt);
+    // Derive key from passphrase using centralized KDF
+    ByteArray key = KDF::pbkdf2_sha256(passphrase, result.salt, 10000, 32);
 
     // Create cipher context
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();

@@ -6,13 +6,7 @@
 
 namespace stegtool::crypto {
 
-namespace {
-    ByteArray derive_key(const std::string& passphrase, const ByteArray& salt) {
-        unsigned char key[32];
-        PKCS5_PBKDF2_HMAC(passphrase.c_str(), passphrase.length(), salt.data(), salt.size(), 10000, EVP_sha256(), 32, key);
-        return ByteArray(key, key + 32);
-    }
-}
+#include "kdf.hpp"
 
 EncryptedData ChaCha20Poly1305::encrypt(const ByteArray& plaintext, const std::string& passphrase) {
     EncryptedData result;
@@ -25,7 +19,7 @@ EncryptedData ChaCha20Poly1305::encrypt(const ByteArray& plaintext, const std::s
         throw EncryptionException("Failed to generate random bytes");
     }
 
-    ByteArray key = derive_key(passphrase, result.salt);
+    ByteArray key = KDF::pbkdf2_sha256(passphrase, result.salt, 10000, 32);
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {

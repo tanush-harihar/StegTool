@@ -42,7 +42,9 @@ private:
 
     BMPHeader bmp_header_;
     DIBHeader dib_header_;
-    std::vector<uint8_t> pixel_data_;
+    std::vector<uint8_t> pixel_data_;     // raw pixel area including row padding
+    ByteArray header_bytes_;               // bytes from file start up to pixel data offset
+    uint32_t pixel_offset_ = 0;
 
     void load_bmp(const std::filesystem::path& bmp_path);
     void validate_format();

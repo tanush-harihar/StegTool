@@ -18,11 +18,15 @@ public:
 
 private:
     std::vector<uint8_t> audio_data_;
+    std::vector<uint8_t> header_bytes_; // bytes up to data chunk
+    std::vector<uint8_t> tail_bytes_;   // bytes after data chunk if any
     uint32_t sample_rate_;
     uint16_t bit_depth_;
     uint16_t channels_;
 
     void load_wav(const std::filesystem::path& wav_path);
+    uint32_t data_offset_ = 0;
+    uint32_t data_size_ = 0;
 };
 
 } // namespace stegtool::carriers
