@@ -2,6 +2,7 @@
 
 #include "../core/carrier.hpp"
 #include <filesystem>
+#include <vector>
 
 namespace stegtool::carriers {
 
@@ -14,7 +15,7 @@ public:
     ByteArray extract() override;
     void save(const std::filesystem::path& output) const override;
     CarrierFormat format() const override { return CarrierFormat::WAV; }
-    std::string description() const override { return "WAV Audio Carrier"; }
+    std::string description() const override { return "WAV Audio Carrier (PCM, 8/16/24/32-bit)"; }
 
 private:
     std::vector<uint8_t> audio_data_;

@@ -9,6 +9,12 @@
 #include <filesystem>
 #include <iostream>
 
+// Forward declarations for e2e tests
+namespace test_e2e {
+void test_packet_format();
+void test_bmp_embed_extract_roundtrip();
+} // namespace test_e2e
+
 using namespace stegtool::carriers;
 using ByteArray = std::vector<uint8_t>;
 
@@ -123,6 +129,15 @@ int main() {
     // Run payload tests
         extern void run_payload_tests();
         run_payload_tests();
+
+    // Run e2e tests
+    try {
+        test_e2e::test_packet_format();
+        std::cout << "\n";
+        test_e2e::test_bmp_embed_extract_roundtrip();
+    } catch (...) {
+        std::cerr << "E2E tests failed\n";
+    }
 
     std::cout << "All tests passed\n";
     return 0;

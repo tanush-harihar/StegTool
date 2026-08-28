@@ -8,6 +8,7 @@
 #include "../core/encryptor.hpp"
 #include <iostream>
 #include <string>
+#include <filesystem>
 
 namespace stegtool::cli {
 
@@ -56,27 +57,43 @@ int CLI::run() {
 }
 
 void CLI::print_help() const {
-    std::cout << "stegtool - Terminal-Based Steganography Tool\n"
+    std::cout << "stegtool - Terminal-Based Steganography Tool v1.0.0\n"
+              << "A modular steganography tool for embedding encrypted and compressed files\n\n"
               << "Usage: stegtool [COMMAND] [OPTIONS]\n\n"
               << "Commands:\n"
               << "  embed       Embed a secret file into a carrier\n"
               << "  extract     Extract a secret file from a carrier\n"
               << "  help        Show this help message\n"
               << "  version     Show version information\n\n"
-              << "Options (embed):\n"
-              << "  --carrier <id>   Carrier id (bmp|png|wav|text)\n"
-              << "  --in <path>      Input carrier file path (cover image)\n"
-              << "  --out <path>     Output carrier file path (stego image)\n"
+              << "Embed Options:\n"
+              << "  --carrier <id>   Carrier format (bmp|png|wav|text, default: bmp)\n"
+              << "  --in <path>      Input carrier file path (cover image/audio)\n"
+              << "  --out <path>     Output stego file path (carrier with embedded data)\n"
               << "  --payload <path> Payload file to embed\n"
-              << "Options (extract):\n"
-              << "  --in <path>      Input steg carrier file path\n"
+              << "  --encrypt <id>   Encryption algorithm (none|aes-gcm|chacha20|xor, default: none)\n"
+              << "  --passphrase <p> Passphrase for encryption (required if --encrypt specified)\n\n"
+              << "Extract Options:\n"
+              << "  --in <path>      Input stego file path (carrier with embedded data)\n"
               << "  --out <path>     Output extracted payload path\n"
+              << "  --carrier <id>   Carrier format (required)\n"
+              << "  --encrypt <id>   Encryption algorithm (default: auto-detect)\n"
+              << "  --passphrase <p> Passphrase for decryption\n\n"
+              << "Examples:\n"
+              << "  # Embed unencrypted:\n"
+              << "  stegtool embed --carrier bmp --in cover.bmp --out stego.bmp --payload secret.txt\n\n"
+              << "  # Embed with AES-GCM encryption:\n"
+              << "  stegtool embed --carrier bmp --in cover.bmp --out stego.bmp \\\n"
+              << "    --payload secret.txt --encrypt aes-gcm --passphrase mypassword\n\n"
+              << "  # Extract:\n"
+              << "  stegtool extract --in stego.bmp --out recovered.txt --encrypt aes-gcm \\\n"
+              << "    --passphrase mypassword\n"
               << std::endl;
 }
 
 void CLI::print_version() const {
     std::cout << "stegtool version 1.0.0\n"
               << "A modular steganography tool\n"
+              << "Copyright (c) 2024. Licensed under MIT.\n"
               << std::endl;
 }
 
@@ -87,23 +104,46 @@ void CLI::handle_embed() {
     std::string payload_path = arg_value(argc_, argv_, "--payload");
 
     if (in_path.empty() || out_path.empty() || payload_path.empty()) {
-        throw CLIException("embed requires --in, --out and --payload");
+        std::cerr << "Error: embed requires --in, --out and --payload\n";
+        print_help();
+        throw CLIException("Missing required arguments for embed command");
     }
+
+    // Validate file paths
+    if (!std::filesystem::exists(in_path)) {
+        throw CLIException("Input carrier file not found: " + in_path);
+    }
+    if (!std::filesystem::exists(payload_path)) {
+        throw CLIException("Payload file not found: " + payload_path);
+    }
+
+    std::cout << "stegtool: Embedding payload into carrier...\n"
+              << "  Carrier: " << carrier_id << "\n"
+              << "  Cover file: " << in_path << "\n"
+              << "  Output file: " << out_path << "\n"
+              << "  Payload: " << payload_path << "\n";
 
     // Read payload
     ByteArray payload = stegtool::utils::FileIO::read_file(std::filesystem::path(payload_path));
+    std::cout << "  Payload size: " << payload.size() << " bytes\n";
 
     // Serialize with compression
     using namespace stegtool::payload;
     Packet pkt = Serializer::serialize_with_compression(payload, true);
+    std::cout << "  Serialized size: " << pkt.serialize().size() << " bytes\n";
 
     // Optional encryption
     std::string encrypt_id = arg_value(argc_, argv_, "--encrypt", "none");
     std::string passphrase = arg_value(argc_, argv_, "--passphrase", "");
 
+    if (encrypt_id != "none" && passphrase.empty()) {
+        throw CLIException("Encryption algorithm specified but no passphrase provided");
+    }
+
     ByteArray to_embed_bytes;
     Packet final_pkt;
     if (encrypt_id != "none") {
+        std::cout << "  Encrypting with: " << encrypt_id << "\n";
         // create encryptor
         auto enc = stegtool::crypto::EncryptorFactory::instance().create(encrypt_id);
         EncryptedData ed = enc->encrypt(pkt.serialize(), passphrase);
@@ -125,12 +165,20 @@ void CLI::handle_embed() {
 
     // Create carrier via factory using input cover file
     CarrierPtr carrier = carriers::CarrierFactory::instance().create(carrier_id, std::filesystem::path(in_path));
+    
+    std::cout << "  Carrier capacity: " << carrier->capacity() << " bytes\n";
+    if (to_embed_bytes.size() > carrier->capacity()) {
+        throw CarrierException("Payload too large for carrier: " + 
+                              std::to_string(to_embed_bytes.size()) + " > " +
+                              std::to_string(carrier->capacity()));
+    }
 
     // Embed and save
     carrier->embed(to_embed_bytes);
     carrier->save(std::filesystem::path(out_path));
 
-    std::cout << "Embed completed: " << out_path << std::endl;
+    std::cout << "✓ Embed completed successfully\n"
+              << "  Output: " << out_path << "\n";
 }
 
 void CLI::handle_extract() {
@@ -141,11 +189,23 @@ void CLI::handle_extract() {
     std::string passphrase = arg_value(argc_, argv_, "--passphrase", "");
 
     if (in_path.empty() || out_path.empty()) {
-        throw CLIException("extract requires --in and --out");
+        std::cerr << "Error: extract requires --in and --out\n";
+        print_help();
+        throw CLIException("Missing required arguments for extract command");
     }
+
+    if (!std::filesystem::exists(in_path)) {
+        throw CLIException("Input stego file not found: " + in_path);
+    }
+
+    std::cout << "stegtool: Extracting payload from carrier...\n"
+              << "  Carrier: " << carrier_id << "\n"
+              << "  Input file: " << in_path << "\n"
+              << "  Output file: " << out_path << "\n";
 
     CarrierPtr carrier = carriers::CarrierFactory::instance().create(carrier_id, std::filesystem::path(in_path));
     ByteArray extracted = carrier->extract();
+    std::cout << "  Extracted " << extracted.size() << " bytes\n";
 
     // Try to deserialize packet from extracted bytes
     using namespace stegtool::payload;
@@ -155,6 +215,7 @@ void CLI::handle_extract() {
         // if packet has encryption metadata, decrypt
         ByteArray enc_meta = pkt.encryption_metadata();
         if (!enc_meta.empty()) {
+            std::cout << "  Decrypting payload...\n";
             // parse meta: alg\0 ivlen iv saltlen salt taglen tag
             size_t pos = 0;
             std::string alg;
@@ -179,6 +240,11 @@ void CLI::handle_extract() {
                 else if (alg.find("ChaCha") != std::string::npos) enc_id = "chacha20";
                 else if (alg == "XOR-Simple") enc_id = "xor";
             }
+            
+            if (passphrase.empty()) {
+                throw CLIException("Payload is encrypted but no passphrase provided");
+            }
+            
             auto enc = stegtool::crypto::EncryptorFactory::instance().create(enc_id);
             EncryptedData ed;
             ed.ciphertext = payload_bytes;
@@ -188,6 +254,7 @@ void CLI::handle_extract() {
             Packet inner = Packet::deserialize(decrypted);
             ByteArray outdata = inner.data();
             stegtool::utils::FileIO::write_file(std::filesystem::path(out_path), outdata);
+            std::cout << "  ✓ Decryption successful\n";
         } else {
             // no encryption metadata: payload_bytes may be packet content or raw
             // attempt to deserialize inner packet
@@ -199,12 +266,15 @@ void CLI::handle_extract() {
                 stegtool::utils::FileIO::write_file(std::filesystem::path(out_path), payload_bytes);
             }
         }
-    } catch (const std::exception&) {
-        // fallback: write raw extracted bytes
+        std::cout << "✓ Extract completed successfully\n"
+                  << "  Output: " << out_path << "\n";
+    } catch (const std::exception& e) {
+        std::cerr << "Warning: Failed to deserialize packet (" << e.what() << ")\n";
+        std::cout << "  Writing raw extracted data...\n";
         stegtool::utils::FileIO::write_file(std::filesystem::path(out_path), extracted);
+        std::cout << "✓ Extract completed (raw data)\n"
+                  << "  Output: " << out_path << "\n";
     }
-
-    std::cout << "Extract completed: " << out_path << std::endl;
 }
 
 } // namespace stegtool::cli

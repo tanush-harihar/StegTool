@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, master ]
+  pull_request:
+    branches: [ main, develop, master ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-and-test:
+    name: Build and Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev libssl-dev
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install zlib openssl@3
+          brew link --force openssl@3
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          # Use vcpkg for Windows dependencies
+          vcpkg install openssl zlib --triplet=x64-windows
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=ON
+          ${{ runner.os == 'Windows' && format('cmake -S . -B build -DCMAKE_BUILD_TYPE={0} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE={1} -DVCPKG_TARGET_TRIPLET=x64-windows', env.BUILD_TYPE, env.VCPKG_INSTALLATION_ROOT + '/scripts/buildsystems/vcpkg.cmake') || '' }}
+
+      - name: Build
+        run: cmake --build build --config ${{ env.BUILD_TYPE }} -j 2
+
+      - name: Run tests
+        working-directory: build
+        run: |
+          ctest --output-on-failure --build-config ${{ env.BUILD_TYPE }} -V
+
+      - name: Run main test executable directly (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./build/${{ env.BUILD_TYPE }}/stegtool_tests
+
+      - name: Run main test executable directly (Windows)
+        if: runner.os == 'Windows'
+        run: .\build\${{ env.BUILD_TYPE }}\stegtool_tests.exe
+
+      - name: Run crypto tests
+        run: |
+          ${{ runner.os == 'Windows' && format('.\build\{0}\stegtool_crypto_tests.exe', env.BUILD_TYPE) || format('./build/{0}/stegtool_crypto_tests', env.BUILD_TYPE) }}
+
+      - name: Run integration tests
+        run: |
+          ${{ runner.os == 'Windows' && format('.\build\{0}\stegtool_integration_tests.exe', env.BUILD_TYPE) || format('./build/{0}/stegtool_integration_tests', env.BUILD_TYPE) }}

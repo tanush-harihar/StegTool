@@ -1,10 +1,13 @@
 #include "encryptor_factory.hpp"
 #include "../core/exceptions.hpp"
+#include "noop_encryptor.hpp"
+
+#ifdef HAVE_OPENSSL
 #include "aes_gcm.hpp"
 #include "chacha20_poly1305.hpp"
 #include "xor_encryptor.hpp"
 #include "rsa_hybrid.hpp"
-#include "noop_encryptor.hpp"
+#endif
 
 namespace stegtool::crypto {
 
